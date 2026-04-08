@@ -1,0 +1,16 @@
+torch>=2.0
+torchvision
+transformers>=4.40
+accelerate
+peft
+trl
+bitsandbytes
+datasets
+Pillow
+wandb
+anthropic
+python-dotenv
+pyyaml
+evaluate
+bert-score
+pytest
