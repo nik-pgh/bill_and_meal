@@ -9,46 +9,106 @@ Receipt Image -> [Teacher: Claude API] -> High-quality recipes (dataset)
 Receipt Image -> [Student: PaliGemma/LLaVA] -> Learned recipes (trained)
 ```
 
+## Prerequisites
+
+- Python 3.10+
+- NVIDIA GPU with 12-16GB VRAM (local training) or Google Colab
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+- Anthropic API key (for teacher labeling)
+- Weights & Biases API key (for experiment tracking)
+
 ## Setup
 
 ```bash
-# Clone and install
+# Clone
 git clone <repo-url>
 cd bill_and_meal
-pip install -e .
+
+# Create virtual environment and install
+uv venv .venv --python 3.11
+source .venv/bin/activate
+uv pip install -e .
+uv pip install -r requirements.txt
+
+# Or with plain pip:
+# python -m venv .venv
+# source .venv/bin/activate
+# pip install -e .
+# pip install -r requirements.txt
 
 # Configure secrets
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your ANTHROPIC_API_KEY and WANDB_API_KEY
+```
+
+## Running Tests
+
+```bash
+source .venv/bin/activate
+python -m pytest tests/ -v
 ```
 
 ## Usage
 
-### 1. Label receipts with Claude
+All commands assume the venv is activated (`source .venv/bin/activate`).
 
-Drop receipt images into `data/receipts/`, then:
+### Step 1: Add receipt images
 
-```bash
-python scripts/label_receipts.py             # label all
-python scripts/label_receipts.py --limit 10  # test run
-```
+Drop your grocery receipt photos (`.jpg`, `.png`, etc.) into `data/receipts/`.
 
-### 2. Train student model
+### Step 2: Label receipts with Claude
 
-```bash
-python scripts/train.py                              # auto-detect env
-python scripts/train.py --config configs/local.yaml  # explicit config
-python scripts/train.py --model llava-7b             # override model
-```
-
-### 3. Evaluate
+The teacher pipeline sends each receipt image to Claude and gets back structured recipe suggestions.
 
 ```bash
-python scripts/evaluate.py --metrics        # quantitative
-python scripts/evaluate.py --qualitative    # manual inspection
-python scripts/evaluate.py --judge --n 20   # Claude comparison
-python scripts/evaluate.py --all            # everything
+# Test run with 10 receipts first
+python scripts/label_receipts.py --limit 10
+
+# Label all unlabeled receipts
+python scripts/label_receipts.py
+
+# Use a specific config
+python scripts/label_receipts.py --config configs/local.yaml
 ```
+
+Labeled pairs are saved to `data/labeled/labeled_dataset.jsonl`. The manifest (`data/manifest.jsonl`) tracks which images have been labeled, so re-running skips already-labeled images.
+
+### Step 3: Train student model
+
+Requires a GPU. On local (RTX 4080):
+
+```bash
+# Train with default config (auto-detects environment)
+python scripts/train.py
+
+# Explicit config
+python scripts/train.py --config configs/local.yaml
+
+# Switch to LLaVA-7B instead of PaliGemma-3B
+python scripts/train.py --model llava-7b
+```
+
+On Colab, open `notebooks/colab_training.ipynb` and follow the cells.
+
+Checkpoints save to `checkpoints/`. Final LoRA adapter saves to `outputs/`.
+
+### Step 4: Evaluate
+
+```bash
+# Quantitative metrics (ingredient coverage, hallucination rate)
+python scripts/evaluate.py --metrics
+
+# Manual inspection of generated recipes
+python scripts/evaluate.py --qualitative --n 5
+
+# Claude judges teacher vs student side-by-side
+python scripts/evaluate.py --judge --n 20
+
+# Run everything
+python scripts/evaluate.py --all
+```
+
+Results save to `outputs/eval_results_<timestamp>.json`.
 
 ## Supported Models
 
@@ -69,8 +129,20 @@ See `notebooks/colab_training.ipynb` for the Colab workflow.
 ```
 src/bill_and_meal/    # Package: config, data, teacher, student, train, evaluate
 scripts/              # CLI entry points
-configs/              # Environment YAML configs
-data/                 # Receipt images + labeled dataset
-notebooks/            # Colab notebook
-tests/                # pytest tests
+configs/              # Environment YAML configs (local.yaml, colab.yaml)
+data/
+  receipts/           # Your receipt images go here
+  labeled/            # Teacher-labeled (image, recipe) pairs
+notebooks/            # Colab training notebook
+tests/                # pytest tests (30 tests)
+checkpoints/          # Training checkpoints (gitignored)
+outputs/              # Final LoRA adapters + eval results (gitignored)
 ```
+
+## Recommended Workflow
+
+1. Start small: add ~10 receipt images, label them, inspect the output
+2. If quality looks good, scale to all your receipts
+3. Train for 1 epoch, check outputs manually
+4. Full training (3 epochs) once you're satisfied
+5. Evaluate quantitatively, then DPO refinement if needed
