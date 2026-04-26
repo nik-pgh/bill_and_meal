@@ -89,17 +89,27 @@ def _parse_uses(output: str) -> list[str]:
     return list(seen)
 
 
+_PIL_FORMAT_TO_MIME = {
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+    "WEBP": "image/webp",
+    "BMP": "image/bmp",
+    "GIF": "image/gif",
+}
+
+
 def _media_type_for(image_path: Path) -> str:
-    """Return the MIME type for an image file."""
-    suffix = image_path.suffix.lower()
-    types = {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".webp": "image/webp",
-        ".bmp": "image/bmp",
-    }
-    return types.get(suffix, "image/jpeg")
+    """Return the MIME type by inspecting actual image bytes (not extension).
+
+    Some datasets ship images with mismatched extensions (e.g. WebP saved as
+    .jpg). Claude API rejects requests where the declared media type doesn't
+    match the actual bytes, so we detect format from content.
+    """
+    from PIL import Image
+
+    with Image.open(image_path) as img:
+        fmt = img.format or "JPEG"
+    return _PIL_FORMAT_TO_MIME.get(fmt, "image/jpeg")
 
 
 def get_teacher_label(image_path: Path, config: dict, retries: int = 3) -> str | None:
@@ -152,11 +162,12 @@ def get_teacher_label(image_path: Path, config: dict, retries: int = 3) -> str |
     return None
 
 
-def label_batch(config: dict) -> int:
-    """Label all unlabeled receipts with teacher outputs.
+def label_batch(config: dict, limit: int | None = None) -> int:
+    """Label unlabeled receipts with teacher outputs.
 
     Args:
         config: Loaded config dict.
+        limit: Optional max number of receipts to attempt this run.
 
     Returns:
         Number of successfully labeled receipts.
@@ -171,6 +182,9 @@ def label_batch(config: dict) -> int:
 
     unlabeled = get_unlabeled(manifest_path)
     logger.info("Found %d unlabeled receipts", len(unlabeled))
+    if limit is not None:
+        unlabeled = unlabeled[:limit]
+        logger.info("Limiting this run to %d receipts", len(unlabeled))
 
     labeled_count = 0
     with open(labeled_path, "a") as f:

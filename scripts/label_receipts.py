@@ -33,14 +33,11 @@ def main():
     unlabeled = get_unlabeled(manifest_path)
     logger.info("Found %d unlabeled receipts", len(unlabeled))
 
-    if args.limit:
-        logger.info("Limiting to %d receipts", args.limit)
-
     if args.revalidate:
         logger.info("Revalidation mode not yet implemented")
         return
 
-    labeled = label_batch(config)
+    labeled = label_batch(config, limit=args.limit)
     logger.info("Done. Labeled %d receipts.", labeled)
 
 
