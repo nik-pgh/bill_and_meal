@@ -10,12 +10,19 @@ from transformers import (
 )
 from peft import LoraConfig, get_peft_model
 
-# Standard LoRA targets for transformer attention + MLP layers.
-# Works for PaliGemma, LLaVA (Mistral backbone), and Gemma 4 alike.
+# Standard LoRA targets for transformer attention + MLP layers (PaliGemma,
+# LLaVA, and other models with plain nn.Linear projections).
 _STD_LORA_TARGETS = [
     "q_proj", "k_proj", "v_proj", "o_proj",
     "gate_proj", "up_proj", "down_proj",
 ]
+
+# Gemma 4 wraps every projection in Gemma4ClippableLinear (custom activation
+# clipping). Stable + main PEFT both reject the wrapper. Targeting the inner
+# `.linear` (a plain Linear4bit) bypasses the wrapper while preserving its
+# clipping behavior — wrapper.forward still calls self.linear(x), so LoRA
+# additions feed through the clip step naturally.
+_GEMMA4_LORA_TARGETS = [f"{m}.linear" for m in _STD_LORA_TARGETS]
 
 MODELS = {
     "paligemma-3b": {
@@ -31,12 +38,12 @@ MODELS = {
     "gemma-4-e4b": {
         "hf_id": "google/gemma-4-E4B-it",
         "model_class": AutoModelForImageTextToText,
-        "target_modules": _STD_LORA_TARGETS,
+        "target_modules": _GEMMA4_LORA_TARGETS,
     },
     "gemma-4-e2b": {
         "hf_id": "google/gemma-4-E2B-it",
         "model_class": AutoModelForImageTextToText,
-        "target_modules": _STD_LORA_TARGETS,
+        "target_modules": _GEMMA4_LORA_TARGETS,
     },
 }
 
