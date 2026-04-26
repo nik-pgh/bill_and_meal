@@ -11,7 +11,7 @@ teacher:
   rate_limit_delay: 1.2
 
 student:
-  model: paligemma-3b
+  model: gemma-4-e4b
   quantization: 4bit
   lora:
     r: 16

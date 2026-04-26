@@ -20,7 +20,7 @@ class TestLoadConfig:
     def test_loads_local_config(self, local_config_path):
         config = load_config(local_config_path)
         assert config["environment"] == "local"
-        assert config["student"]["model"] == "paligemma-3b"
+        assert config["student"]["model"] == "gemma-4-e4b"
         assert config["training"]["batch_size"] == 4
 
     def test_loads_colab_config(self):

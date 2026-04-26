@@ -2,29 +2,41 @@
 
 import torch
 from transformers import (
+    AutoModelForImageTextToText,
     AutoProcessor,
     BitsAndBytesConfig,
-    PaliGemmaForConditionalGeneration,
     LlavaForConditionalGeneration,
+    PaliGemmaForConditionalGeneration,
 )
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+
+# Standard LoRA targets for transformer attention + MLP layers.
+# Works for PaliGemma, LLaVA (Mistral backbone), and Gemma 4 alike.
+_STD_LORA_TARGETS = [
+    "q_proj", "k_proj", "v_proj", "o_proj",
+    "gate_proj", "up_proj", "down_proj",
+]
 
 MODELS = {
     "paligemma-3b": {
         "hf_id": "google/paligemma-3b-pt-224",
         "model_class": PaliGemmaForConditionalGeneration,
-        "target_modules": [
-            "q_proj", "k_proj", "v_proj", "o_proj",
-            "gate_proj", "up_proj", "down_proj",
-        ],
+        "target_modules": _STD_LORA_TARGETS,
     },
     "llava-7b": {
         "hf_id": "llava-hf/llava-v1.6-mistral-7b-hf",
         "model_class": LlavaForConditionalGeneration,
-        "target_modules": [
-            "q_proj", "k_proj", "v_proj", "o_proj",
-            "gate_proj", "up_proj", "down_proj",
-        ],
+        "target_modules": _STD_LORA_TARGETS,
+    },
+    "gemma-4-e4b": {
+        "hf_id": "google/gemma-4-E4B-it",
+        "model_class": AutoModelForImageTextToText,
+        "target_modules": _STD_LORA_TARGETS,
+    },
+    "gemma-4-e2b": {
+        "hf_id": "google/gemma-4-E2B-it",
+        "model_class": AutoModelForImageTextToText,
+        "target_modules": _STD_LORA_TARGETS,
     },
 }
 
