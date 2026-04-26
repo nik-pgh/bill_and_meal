@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bill_and_meal"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "Knowledge distillation for receipt-to-recipe generation"
+
+[tool.setuptools.packages.find]
+where = ["src"]
