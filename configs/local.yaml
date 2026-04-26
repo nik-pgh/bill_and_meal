@@ -24,8 +24,11 @@ training:
   gradient_accumulation_steps: 4
   learning_rate: 2.0e-4
   max_length: 1024
-  fp16: true
+  bf16: true
+  fp16: false
   gradient_checkpointing: true
+  logging_steps: 5
+  report_to: wandb
   checkpoint_dir: ./checkpoints
   output_dir: ./outputs
 

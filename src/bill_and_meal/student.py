@@ -86,7 +86,9 @@ def attach_lora(model, config: dict):
     model_info = MODELS[model_key]
     lora_cfg = student_cfg["lora"]
 
-    model = prepare_model_for_kbit_training(model)
+    # use_gradient_checkpointing=False here because TrainingArguments enables it
+    # on the Trainer side; doing it twice causes require_grad conflicts in PEFT.
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
 
     lora_config = LoraConfig(
         r=lora_cfg["r"],
