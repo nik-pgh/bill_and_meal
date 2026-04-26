@@ -24,13 +24,16 @@ student:
 
 training:
   epochs: 3
-  # T4 16GB ran OOM at attention with batch=2, max_length=1024 even with the
-  # 4-bit base + LoRA fixes. batch_size=1 + max_length=768 keeps activations
-  # under the cap; gradient_accumulation_steps=16 preserves effective batch=16.
+  # T4 16GB squeeze: gemma-4-e2b has 5.1B actual params (despite the "E2B"
+  # name) and 256K vocab → logit tensor at the LM head is ~512×256K×2bytes
+  # already, and cross_entropy needs an equal-sized softmax intermediate.
+  # batch=1, seq=512 with gradient checkpointing is the floor that fits.
+  # Set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True in the environment
+  # to defragment reserved-but-unallocated chunks.
   batch_size: 1
   gradient_accumulation_steps: 16
   learning_rate: 2.0e-4
-  max_length: 768
+  max_length: 512
   bf16: true
   fp16: false
   gradient_checkpointing: true

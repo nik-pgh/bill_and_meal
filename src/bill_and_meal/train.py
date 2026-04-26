@@ -37,11 +37,36 @@ class ReceiptRecipeDataset(Dataset):
     def __len__(self) -> int:
         return len(self.records)
 
+    def _has_chat_template(self) -> bool:
+        return bool(
+            getattr(self.processor, "chat_template", None)
+            or getattr(getattr(self.processor, "tokenizer", None), "chat_template", None)
+        )
+
     def __getitem__(self, idx: int) -> dict:
         record = self.records[idx]
         image = Image.open(record["image_path"]).convert("RGB")
         answer = record["teacher_output"]
 
+        if self._has_chat_template():
+            full, prompt_only = self._encode_chat(image, answer)
+        else:
+            full, prompt_only = self._encode_plain(image, answer)
+
+        prompt_len = min(prompt_only["input_ids"].shape[-1], self.max_length)
+
+        labels = full["input_ids"].clone()
+        labels[:, :prompt_len] = -100
+        pad_id = self.processor.tokenizer.pad_token_id
+        if pad_id is not None:
+            labels[labels == pad_id] = -100
+
+        inputs = {k: v.squeeze(0) for k, v in full.items()}
+        inputs["labels"] = labels.squeeze(0)
+        return inputs
+
+    def _encode_chat(self, image, answer: str):
+        """Chat-format VLMs (Gemma 4, Qwen-VL, LLaVA-style)."""
         user_msg = [{
             "role": "user",
             "content": [
@@ -61,7 +86,6 @@ class ReceiptRecipeDataset(Dataset):
             max_length=self.max_length,
             padding="max_length",
         )
-
         prompt_only = self.processor.apply_chat_template(
             user_msg,
             add_generation_prompt=True,
@@ -69,17 +93,28 @@ class ReceiptRecipeDataset(Dataset):
             return_dict=True,
             return_tensors="pt",
         )
-        prompt_len = min(prompt_only["input_ids"].shape[-1], self.max_length)
+        return full, prompt_only
 
-        labels = full["input_ids"].clone()
-        labels[:, :prompt_len] = -100
-        pad_id = self.processor.tokenizer.pad_token_id
-        if pad_id is not None:
-            labels[labels == pad_id] = -100
+    def _encode_plain(self, image, answer: str):
+        """Base VLMs without a chat template (PaliGemma). Image tokens are
+        prepended by the processor; labels mask everything before the answer."""
+        prompt_text = f"{PROMPT}\n"
+        full_text = prompt_text + answer
 
-        inputs = {k: v.squeeze(0) for k, v in full.items()}
-        inputs["labels"] = labels.squeeze(0)
-        return inputs
+        full = self.processor(
+            text=full_text,
+            images=image,
+            return_tensors="pt",
+            truncation=True,
+            max_length=self.max_length,
+            padding="max_length",
+        )
+        prompt_only = self.processor(
+            text=prompt_text,
+            images=image,
+            return_tensors="pt",
+        )
+        return full, prompt_only
 
 
 def build_trainer(

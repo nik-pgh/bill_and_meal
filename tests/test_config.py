@@ -27,8 +27,8 @@ class TestLoadConfig:
         colab_path = Path(__file__).parent.parent / "configs" / "colab.yaml"
         config = load_config(colab_path)
         assert config["environment"] == "colab"
-        assert config["training"]["batch_size"] == 2
-        assert config["training"]["gradient_accumulation_steps"] == 8
+        assert config["training"]["batch_size"] == 1
+        assert config["training"]["gradient_accumulation_steps"] == 16
 
     def test_config_has_all_required_sections(self, local_config_path):
         config = load_config(local_config_path)
