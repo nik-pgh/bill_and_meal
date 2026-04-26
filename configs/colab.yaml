@@ -11,7 +11,11 @@ teacher:
   rate_limit_delay: 1.2
 
 student:
-  model: gemma-4-e4b
+  # E2B fits comfortably on T4 free-tier (16GB VRAM). E4B's raw weights are
+  # ~8B params — 4-bit quantized base + bf16 embeddings/lm_head + LoRA grads +
+  # activations push past T4 capacity (transformers tries CPU offload, bnb
+  # rejects). Switch to gemma-4-e4b on A100/L4 (Colab Pro).
+  model: gemma-4-e2b
   quantization: 4bit
   lora:
     r: 16
