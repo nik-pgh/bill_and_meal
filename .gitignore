@@ -1,7 +1,5 @@
 # Data and model artifacts
-data/receipts/
-data/manifest.jsonl
-data/labeled/
+data/receipts_rejected/
 data/dpo_pairs.jsonl
 checkpoints/
 outputs/
