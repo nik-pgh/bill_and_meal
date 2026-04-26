@@ -112,6 +112,49 @@ def _media_type_for(image_path: Path) -> str:
     return _PIL_FORMAT_TO_MIME.get(fmt, "image/jpeg")
 
 
+# Claude accepts up to 5 MB on the base64-encoded payload. Base64 grows bytes
+# by ~33%, so the raw image must stay under ~3.75 MB.
+_CLAUDE_MAX_BYTES = 5 * 1024 * 1024
+_RAW_BYTE_BUDGET = int(_CLAUDE_MAX_BYTES * 0.74)
+
+
+def prepare_image_for_claude(image_path: Path) -> tuple[str, str]:
+    """Return (base64_data, media_type) for an image, downsizing if too large.
+
+    If the original file is within Claude's size limit, encode as-is to
+    preserve quality. Otherwise downscale and re-encode as JPEG until the
+    result fits.
+    """
+    from io import BytesIO
+    from PIL import Image
+
+    if image_path.stat().st_size <= _RAW_BYTE_BUDGET:
+        return encode_image(image_path), _media_type_for(image_path)
+
+    with Image.open(image_path) as img:
+        img = img.convert("RGB")
+        max_dim = max(img.size)
+        for target in (2048, 1568, 1280, 1024, 768):
+            if target >= max_dim:
+                continue
+            scale = target / max_dim
+            resized = img.resize(
+                (int(img.size[0] * scale), int(img.size[1] * scale)),
+                Image.LANCZOS,
+            )
+            buf = BytesIO()
+            resized.save(buf, format="JPEG", quality=85, optimize=True)
+            data = buf.getvalue()
+            if len(data) <= _RAW_BYTE_BUDGET:
+                logger.info(
+                    "Resized %s from %s to %s (%d bytes)",
+                    image_path.name, img.size, resized.size, len(data),
+                )
+                return base64.standard_b64encode(data).decode("utf-8"), "image/jpeg"
+
+    raise ValueError(f"Could not compress {image_path} below {_RAW_BYTE_BUDGET} bytes")
+
+
 def get_teacher_label(image_path: Path, config: dict, retries: int = 3) -> str | None:
     """Get Claude's recipe output for a receipt image.
 
@@ -124,8 +167,7 @@ def get_teacher_label(image_path: Path, config: dict, retries: int = 3) -> str |
         Recipe text from Claude, or None if all attempts fail.
     """
     client = anthropic.Anthropic()
-    b64 = encode_image(image_path)
-    media_type = _media_type_for(image_path)
+    b64, media_type = prepare_image_for_claude(image_path)
     teacher_cfg = config["teacher"]
 
     for attempt in range(retries):
