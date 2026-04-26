@@ -24,10 +24,13 @@ student:
 
 training:
   epochs: 3
-  batch_size: 2
-  gradient_accumulation_steps: 8
+  # T4 16GB ran OOM at attention with batch=2, max_length=1024 even with the
+  # 4-bit base + LoRA fixes. batch_size=1 + max_length=768 keeps activations
+  # under the cap; gradient_accumulation_steps=16 preserves effective batch=16.
+  batch_size: 1
+  gradient_accumulation_steps: 16
   learning_rate: 2.0e-4
-  max_length: 1024
+  max_length: 768
   bf16: true
   fp16: false
   gradient_checkpointing: true
