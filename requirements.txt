@@ -1,6 +1,8 @@
 torch>=2.0
 torchvision
-transformers>=4.55
+# Gemma 4 (model_type "gemma4") isn't in stable transformers releases yet — pull
+# from main. Pin to a specific commit if main breaks.
+transformers @ git+https://github.com/huggingface/transformers.git
 accelerate
 peft
 trl
