@@ -4,7 +4,10 @@ torchvision
 # from main. Pin to a specific commit if main breaks.
 transformers @ git+https://github.com/huggingface/transformers.git
 accelerate
-peft
+# PEFT also pulled from main: stable PEFT doesn't recognize the
+# Gemma4ClippableLinear wrapper around Linear4bit, so LoRA attach raises
+# ValueError. Pin to a commit if main breaks.
+peft @ git+https://github.com/huggingface/peft.git
 trl
 bitsandbytes
 datasets
