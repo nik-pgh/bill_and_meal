@@ -62,10 +62,15 @@ def load_model(config: dict) -> tuple:
     )
 
     processor = AutoProcessor.from_pretrained(model_info["hf_id"])
+    # low_cpu_mem_usage + bf16 dtype keeps the loader from materializing the
+    # full model in fp32 in RAM before quantization — Colab free-tier T4 has
+    # only ~12GB system RAM, which OOM-kills the kernel without these flags.
     model = model_info["model_class"].from_pretrained(
         model_info["hf_id"],
         quantization_config=bnb_config,
         device_map="auto",
+        torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
     )
 
     return model, processor
