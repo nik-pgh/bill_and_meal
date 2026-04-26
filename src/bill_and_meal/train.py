@@ -96,9 +96,10 @@ class ReceiptRecipeDataset(Dataset):
         return full, prompt_only
 
     def _encode_plain(self, image, answer: str):
-        """Base VLMs without a chat template (PaliGemma). Image tokens are
-        prepended by the processor; labels mask everything before the answer."""
-        prompt_text = f"{PROMPT}\n"
+        """Base VLMs without a chat template (PaliGemma). Explicit `<image>`
+        prefix avoids PaliGemmaProcessor's per-call auto-prepend warning;
+        labels mask everything before the answer."""
+        prompt_text = f"<image>{PROMPT}\n"
         full_text = prompt_text + answer
 
         full = self.processor(
