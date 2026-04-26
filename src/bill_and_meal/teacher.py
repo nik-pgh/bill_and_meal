@@ -70,6 +70,25 @@ def validate_teacher_output(record: dict) -> bool:
     return True
 
 
+def _parse_uses(output: str) -> list[str]:
+    """Extract ingredients from all 'USES:' lines in the teacher output.
+
+    Each recipe block contains a 'USES: a, b, c' line listing receipt
+    ingredients used. Aggregate them across all recipes, deduped.
+    """
+    seen: dict[str, None] = {}
+    for line in output.split("\n"):
+        stripped = line.strip()
+        if not stripped.upper().startswith("USES:"):
+            continue
+        items = stripped.split(":", 1)[1].split(",")
+        for item in items:
+            cleaned = item.strip()
+            if cleaned:
+                seen.setdefault(cleaned, None)
+    return list(seen)
+
+
 def _media_type_for(image_path: Path) -> str:
     """Return the MIME type for an image file."""
     suffix = image_path.suffix.lower()
@@ -167,7 +186,7 @@ def label_batch(config: dict) -> int:
             record = {
                 "id": entry["id"],
                 "image_path": str(image_path),
-                "ingredients": [],
+                "ingredients": _parse_uses(teacher_output),
                 "teacher_output": teacher_output,
             }
 

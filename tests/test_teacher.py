@@ -2,7 +2,36 @@ import base64
 import pytest
 from pathlib import Path
 
-from bill_and_meal.teacher import validate_teacher_output, encode_image, TEACHER_SYSTEM_PROMPT
+from bill_and_meal.teacher import (
+    TEACHER_SYSTEM_PROMPT,
+    _parse_uses,
+    encode_image,
+    validate_teacher_output,
+)
+
+
+class TestParseUses:
+    def test_extracts_ingredients_from_single_recipe(self):
+        output = (
+            "RECIPE 1: Stir Fry\n"
+            "USES: chicken, garlic, onion\n"
+            "STEPS:\n1. cook"
+        )
+        assert _parse_uses(output) == ["chicken", "garlic", "onion"]
+
+    def test_aggregates_across_multiple_recipes_and_dedupes(self):
+        output = (
+            "RECIPE 1: A\nUSES: kimchi, pork, tofu\nSTEPS:\n1. x\n\n"
+            "RECIPE 2: B\nUSES: pork, garlic\nSTEPS:\n1. y"
+        )
+        assert _parse_uses(output) == ["kimchi", "pork", "tofu", "garlic"]
+
+    def test_returns_empty_when_no_uses_lines(self):
+        assert _parse_uses("RECIPE 1: A\nSTEPS:\n1. cook") == []
+
+    def test_ignores_empty_items_and_strips_whitespace(self):
+        output = "USES:  chicken ,, garlic ,  \nSTEPS:\n1. x"
+        assert _parse_uses(output) == ["chicken", "garlic"]
 
 
 class TestValidateTeacherOutput:
