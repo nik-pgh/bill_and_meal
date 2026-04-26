@@ -8,7 +8,7 @@ from transformers import (
     LlavaForConditionalGeneration,
     PaliGemmaForConditionalGeneration,
 )
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft import LoraConfig, get_peft_model
 
 # Standard LoRA targets for transformer attention + MLP layers.
 # Works for PaliGemma, LLaVA (Mistral backbone), and Gemma 4 alike.
@@ -91,9 +91,16 @@ def attach_lora(model, config: dict):
     model_info = MODELS[model_key]
     lora_cfg = student_cfg["lora"]
 
-    # use_gradient_checkpointing=False here because TrainingArguments enables it
-    # on the Trainer side; doing it twice causes require_grad conflicts in PEFT.
-    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
+    # Manual minimal kbit prep — skip prepare_model_for_kbit_training because
+    # its fp32 upcast of non-quantized params (Gemma's 256K vocab embeddings
+    # are ~3GB in fp32) OOMs on T4 (14.56GB) when the 4-bit base already takes
+    # ~8GB. The fp32 upcast is a QLoRA stability recommendation, not a
+    # requirement — bf16 compute_dtype (set in BitsAndBytesConfig) is fine.
+    # Gradient checkpointing is enabled by TrainingArguments, not here.
+    for param in model.parameters():
+        param.requires_grad = False
+    if hasattr(model, "enable_input_require_grads"):
+        model.enable_input_require_grads()
 
     lora_config = LoraConfig(
         r=lora_cfg["r"],
