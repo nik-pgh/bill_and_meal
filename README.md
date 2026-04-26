@@ -166,12 +166,21 @@ Switch models via `--model <key>` or by editing the `student.model` field in you
 
 ## Training Metrics
 
-The trainer evaluates each epoch on:
-- **`ingredient_iou`** — Jaccard similarity between teacher/student ingredient mentions (selected as best-model criterion)
+During training, each epoch reports `eval_loss` (label-masked CE on the validation split). This is the best-model selection criterion (`metric_for_best_model="eval_loss"`).
+
+Generation-quality metrics are deliberately **not** computed per-epoch (would require feeding prompt-only inputs and running `generate()` on every example each epoch — slow on T4, and the in-trainer eval dataset is teacher-forced so generation would condition on the answer). Run them post-training with:
+
+```bash
+python scripts/evaluate.py --all
+```
+
+Which reports:
+- **`ingredient_iou`** — Jaccard similarity between teacher/student ingredient mentions
 - **`action_alignment`** — recall of (cooking_verb, ingredient) pairs
 - **`sequence_similarity`** — step-by-step structural similarity
+- **Claude-as-judge** — head-to-head teacher vs student scoring
 
-Plus `eval_loss` from the LM head. Metrics flow to wandb under the `bill-and-meal` project.
+Per-epoch `eval_loss` flows to wandb under the `bill-and-meal` project.
 
 ## Configs
 
@@ -180,7 +189,7 @@ Plus `eval_loss` from the LM head. Metrics flow to wandb under the `bill-and-mea
 | Local | [configs/local.yaml](configs/local.yaml) | gemma-4-e4b | 16 (4 × 4) |
 | Colab | [configs/colab.yaml](configs/colab.yaml) | gemma-4-e4b | 16 (2 × 8) |
 
-Mixed precision is `bf16` to match Gemma's native dtype. `predict_with_generate` is enabled so eval metrics are computed on real generations, not just teacher-forced loss.
+Mixed precision is `bf16` to match Gemma's native dtype.
 
 ## Scripts
 

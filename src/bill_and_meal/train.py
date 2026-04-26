@@ -3,21 +3,14 @@
 import json
 import logging
 import os
-import re
 from pathlib import Path
 
-import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset, random_split
-from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
+from transformers import Trainer, TrainingArguments
 
 from bill_and_meal.config import load_config
-from bill_and_meal.evaluate import (
-    action_ingredient_alignment,
-    ingredient_iou,
-    recipe_sequence_similarity,
-)
 from bill_and_meal.student import attach_lora, load_model
 
 logger = logging.getLogger(__name__)
@@ -89,64 +82,38 @@ class ReceiptRecipeDataset(Dataset):
         return inputs
 
 
-def _build_compute_metrics(processor, known_ingredients: list[str]):
-    """Return a compute_metrics callable bound to the processor + ingredient list."""
-    pad_id = processor.tokenizer.pad_token_id or 0
-
-    def compute_metrics(eval_preds):
-        preds, labels = eval_preds
-        if isinstance(preds, tuple):
-            preds = preds[0]
-
-        labels = np.where(labels != -100, labels, pad_id)
-
-        decoded_preds = processor.tokenizer.batch_decode(preds, skip_special_tokens=True)
-        decoded_labels = processor.tokenizer.batch_decode(labels, skip_special_tokens=True)
-
-        iou_scores = []
-        action_scores = []
-        seq_scores = []
-        for ref, hyp in zip(decoded_labels, decoded_preds):
-            iou_scores.append(ingredient_iou(ref, hyp, known_ingredients))
-            action_scores.append(action_ingredient_alignment(ref, hyp, known_ingredients))
-            seq_scores.append(recipe_sequence_similarity(ref, hyp))
-
-        return {
-            "ingredient_iou": sum(iou_scores) / len(iou_scores),
-            "action_alignment": sum(action_scores) / len(action_scores),
-            "sequence_similarity": sum(seq_scores) / len(seq_scores),
-        }
-
-    return compute_metrics
-
-
 def build_trainer(
     model,
     processor,
     train_dataset: Dataset,
     val_dataset: Dataset,
     config: dict,
-) -> Seq2SeqTrainer:
-    """Construct a HuggingFace Seq2SeqTrainer from config.
+) -> Trainer:
+    """Construct a HuggingFace Trainer from config.
+
+    Eval reports `eval_loss` only (label-masked CE on val). Generation-based
+    metrics (IoU / action alignment / sequence similarity) are computed
+    separately by scripts/evaluate.py against the trained adapter, where the
+    model is fed prompt-only inputs to produce honest from-scratch generations.
 
     Args:
         model: Model with LoRA adapters.
-        processor: Model processor/tokenizer.
+        processor: Model processor/tokenizer (kept for signature symmetry).
         train_dataset: Training split.
         val_dataset: Validation split.
         config: Loaded config dict.
 
     Returns:
-        Configured Seq2SeqTrainer instance.
+        Configured Trainer instance.
     """
+    del processor  # unused; kept for API symmetry with run_training
     t = config["training"]
     w = config["wandb"]
-    known_ingredients = config["data"].get("known_ingredients", [])
 
     use_bf16 = t.get("bf16", False)
     use_fp16 = t.get("fp16", False) and not use_bf16
 
-    training_args = Seq2SeqTrainingArguments(
+    training_args = TrainingArguments(
         output_dir=t["checkpoint_dir"],
         num_train_epochs=t["epochs"],
         per_device_train_batch_size=t["batch_size"],
@@ -166,52 +133,22 @@ def build_trainer(
         save_total_limit=3,
         report_to=t.get("report_to", "wandb"),
         run_name=f"{w['run_name_prefix']}_{config['student']['model']}",
-        predict_with_generate=True,
-        generation_max_length=t.get("max_length", 1024),
         load_best_model_at_end=True,
-        metric_for_best_model="ingredient_iou",
-        greater_is_better=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
         seed=SPLIT_SEED,
         remove_unused_columns=False,
     )
 
-    return Seq2SeqTrainer(
+    return Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
-        compute_metrics=_build_compute_metrics(processor, known_ingredients),
         data_collator=lambda data: {
             k: torch.stack([d[k] for d in data]) for k in data[0]
         },
     )
-
-
-def extract_known_ingredients(labeled_path: Path) -> list[str]:
-    """Build a known-ingredients vocabulary from the labeled dataset.
-
-    Prefers the per-record ingredient list when available (preserves multi-word
-    items like 'red bell pepper'); falls back to extracting English words from
-    the teacher output.
-    """
-    with open(labeled_path) as f:
-        records = [json.loads(line) for line in f if line.strip()]
-
-    vocab: set[str] = set()
-    for r in records:
-        ingredients = r.get("ingredients")
-        if isinstance(ingredients, list) and ingredients:
-            for item in ingredients:
-                cleaned = re.sub(r"[^a-zA-Z\s]", "", item).strip().lower()
-                if cleaned:
-                    vocab.add(cleaned)
-            continue
-
-        teacher_text = r.get("teacher_output", "")
-        for word in re.findall(r"\b[a-zA-Z]{2,}\b", teacher_text):
-            vocab.add(word.lower())
-
-    return sorted(vocab)
 
 
 def _setup_wandb_env(config: dict) -> None:
@@ -233,10 +170,6 @@ def run_training(config: dict | None = None) -> None:
     _setup_wandb_env(config)
 
     labeled_path = Path(config["data"]["labeled_path"])
-    known_ingredients = extract_known_ingredients(labeled_path)
-    config["data"]["known_ingredients"] = known_ingredients
-    logger.info("Identified %d ingredient terms for metric computation",
-                len(known_ingredients))
 
     logger.info("Loading model: %s", config["student"]["model"])
     model, processor = load_model(config)
