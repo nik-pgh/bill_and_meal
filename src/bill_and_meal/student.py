@@ -17,12 +17,20 @@ _STD_LORA_TARGETS = [
     "gate_proj", "up_proj", "down_proj",
 ]
 
-# Gemma 4 wraps every projection in Gemma4ClippableLinear (custom activation
-# clipping). Stable + main PEFT both reject the wrapper. Targeting the inner
-# `.linear` (a plain Linear4bit) bypasses the wrapper while preserving its
-# clipping behavior — wrapper.forward still calls self.linear(x), so LoRA
-# additions feed through the clip step naturally.
-_GEMMA4_LORA_TARGETS = [f"{m}.linear" for m in _STD_LORA_TARGETS]
+# Gemma 4: ONLY the vision_tower wraps projections in Gemma4ClippableLinear.
+# The LLM (language_model.layers.*) uses plain Linear4bit. Earlier suffix-based
+# `.linear` targeting matched only vision modules and missed the LLM entirely
+# — training updated the vision encoder while the text decoder stayed at base
+# IT weights, producing "please give me the receipt" inference responses.
+#
+# Restrict LoRA to language_model paths via regex so we adapt the actual
+# generation behavior. PEFT uses re.fullmatch when target_modules is a string.
+# We deliberately skip the vision tower — pretrained SigLIP is already strong
+# at receipts, and dual-targeting both wrapper and plain modules would require
+# more brittle path matching.
+_GEMMA4_LORA_TARGETS = (
+    r".*language_model\..*\.(q|k|v|o|gate|up|down)_proj"
+)
 
 MODELS = {
     "paligemma-3b": {
