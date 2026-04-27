@@ -17,19 +17,19 @@ _STD_LORA_TARGETS = [
     "gate_proj", "up_proj", "down_proj",
 ]
 
-# Gemma 4: ONLY the vision_tower wraps projections in Gemma4ClippableLinear.
-# The LLM (language_model.layers.*) uses plain Linear4bit. Earlier suffix-based
-# `.linear` targeting matched only vision modules and missed the LLM entirely
-# — training updated the vision encoder while the text decoder stayed at base
-# IT weights, producing "please give me the receipt" inference responses.
-#
-# Restrict LoRA to language_model paths via regex so we adapt the actual
-# generation behavior. PEFT uses re.fullmatch when target_modules is a string.
-# We deliberately skip the vision tower — pretrained SigLIP is already strong
-# at receipts, and dual-targeting both wrapper and plain modules would require
-# more brittle path matching.
+# Gemma 4 dual-target: Language model uses plain Linear4bit at
+# `language_model.layers.X.self_attn.q_proj`, while vision_tower wraps each
+# projection in Gemma4ClippableLinear with the actual Linear4bit at the inner
+# `.linear` attribute. The regex matches both:
+#   - LLM paths: language_model.*.{q,k,v,o,gate,up,down}_proj
+#   - Vision paths: vision_tower.*.{q,k,v,o,gate,up,down}_proj.linear
+# PEFT uses re.fullmatch on the module name. Tuning both halves lets the
+# vision encoder learn receipt-specific representations and the LLM learn the
+# recipe-format response — earlier LLM-only training produced format-correct
+# but visually-ungrounded outputs ("Chicken and Rice" regardless of receipt).
 _GEMMA4_LORA_TARGETS = (
     r".*language_model\..*\.(q|k|v|o|gate|up|down)_proj"
+    r"|.*vision_tower\..*\.(q|k|v|o|gate|up|down)_proj\.linear"
 )
 
 MODELS = {
