@@ -23,24 +23,23 @@ student:
     dropout: 0.05
 
 training:
-  epochs: 3
-  # T4 16GB squeeze: gemma-4-e2b has 5.1B actual params (despite the "E2B"
-  # name) and 256K vocab → logit tensor at the LM head is ~512×256K×2bytes
-  # already, and cross_entropy needs an equal-sized softmax intermediate.
-  # batch=1, seq=512 with gradient checkpointing is the floor that fits.
-  # Set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True in the environment
-  # to defragment reserved-but-unallocated chunks.
-  batch_size: 1
-  gradient_accumulation_steps: 16
+  # v4 setup (LLM-only LoRA, post-mortem of v3): vision_tower untouched, so
+  # the activation footprint shrinks vs v3 — A100/L4 can run batch=2 with
+  # max_length=1024 (covers full receipt+answer). Effective batch stays 16.
+  # 5 epochs based on v2 plateau curve; early_stopping_patience adds a guard.
+  epochs: 5
+  batch_size: 2
+  gradient_accumulation_steps: 8
   learning_rate: 2.0e-4
-  max_length: 512
+  max_length: 1024
   bf16: true
   fp16: false
   gradient_checkpointing: true
   logging_steps: 5
   report_to: wandb
-  checkpoint_dir: /content/drive/MyDrive/bill_and_meal/checkpoints
-  output_dir: /content/drive/MyDrive/bill_and_meal/outputs
+  early_stopping_patience: 2
+  checkpoint_dir: /content/drive/MyDrive/bill_and_meal/checkpoints_v4
+  output_dir: /content/drive/MyDrive/bill_and_meal/outputs_v4
 
 wandb:
   project: bill-and-meal

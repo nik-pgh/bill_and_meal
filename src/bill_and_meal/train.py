@@ -8,7 +8,12 @@ from pathlib import Path
 import torch
 from PIL import Image
 from torch.utils.data import Dataset, random_split
-from transformers import Trainer, TrainingArguments
+from transformers import (
+    EarlyStoppingCallback,
+    Trainer,
+    TrainerCallback,
+    TrainingArguments,
+)
 
 from bill_and_meal.config import load_config
 from bill_and_meal.student import attach_lora, load_model
@@ -118,12 +123,65 @@ class ReceiptRecipeDataset(Dataset):
         return full, prompt_only
 
 
+class GenerationSampleCallback(TrainerCallback):
+    """Print a from-scratch generation each epoch to catch broken outputs early.
+
+    Token-level eval_loss can plateau low while autoregressive generation
+    collapses (the v3 lesson). Logging two real generations per epoch surfaces
+    repetition loops, format breakage, or grounding loss before the run ends.
+    """
+
+    def __init__(self, processor, sample_records: list[dict], num_samples: int = 2) -> None:
+        self.processor = processor
+        self.samples = sample_records[:num_samples]
+
+    def on_epoch_end(self, args, state, control, model=None, **kwargs) -> None:
+        if model is None or not self.samples:
+            return
+        model.eval()
+        for record in self.samples:
+            image = Image.open(record["image_path"]).convert("RGB")
+            messages = [{
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image},
+                    {"type": "text", "text": PROMPT},
+                ],
+            }]
+            try:
+                inputs = self.processor.apply_chat_template(
+                    messages,
+                    add_generation_prompt=True,
+                    tokenize=True,
+                    return_dict=True,
+                    return_tensors="pt",
+                ).to(model.device)
+                with torch.no_grad():
+                    out = model.generate(
+                        **inputs,
+                        max_new_tokens=200,
+                        do_sample=False,
+                    )
+                new_tokens = out[0][inputs["input_ids"].shape[1]:]
+                preview = self.processor.decode(new_tokens, skip_special_tokens=True)[:300]
+            except Exception as exc:  # generation diagnostics shouldn't break training
+                preview = f"<generation failed: {exc}>"
+            logger.info(
+                "[epoch %s sample %s] %s",
+                int(state.epoch or 0),
+                record.get("id", "?"),
+                preview.replace("\n", " ⏎ "),
+            )
+        model.train()
+
+
 def build_trainer(
     model,
     processor,
     train_dataset: Dataset,
     val_dataset: Dataset,
     config: dict,
+    sample_records: list[dict] | None = None,
 ) -> Trainer:
     """Construct a HuggingFace Trainer from config.
 
@@ -134,15 +192,16 @@ def build_trainer(
 
     Args:
         model: Model with LoRA adapters.
-        processor: Model processor/tokenizer (kept for signature symmetry).
+        processor: Model processor/tokenizer.
         train_dataset: Training split.
         val_dataset: Validation split.
         config: Loaded config dict.
+        sample_records: Optional records used by GenerationSampleCallback to
+            print a real generation each epoch.
 
     Returns:
         Configured Trainer instance.
     """
-    del processor  # unused; kept for API symmetry with run_training
     t = config["training"]
     w = config["wandb"]
 
@@ -176,11 +235,19 @@ def build_trainer(
         remove_unused_columns=False,
     )
 
+    callbacks: list[TrainerCallback] = []
+    patience = t.get("early_stopping_patience")
+    if patience:
+        callbacks.append(EarlyStoppingCallback(early_stopping_patience=int(patience)))
+    if sample_records:
+        callbacks.append(GenerationSampleCallback(processor, sample_records))
+
     return Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
+        callbacks=callbacks or None,
         data_collator=lambda data: {
             k: torch.stack([d[k] for d in data]) for k in data[0]
         },
@@ -226,7 +293,10 @@ def run_training(config: dict | None = None) -> None:
     )
 
     logger.info("Training: %d train, %d val", len(train_dataset), len(val_dataset))
-    trainer = build_trainer(model, processor, train_dataset, val_dataset, config)
+    sample_records = full_dataset.records[:2]
+    trainer = build_trainer(
+        model, processor, train_dataset, val_dataset, config, sample_records,
+    )
     trainer.train()
 
     output_dir = config["training"]["output_dir"]
