@@ -34,3 +34,6 @@ wandb/
 
 # venv
 .venv/
+
+# docs
+docs/
