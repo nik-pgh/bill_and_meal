@@ -1,0 +1,1468 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bill &amp; Meal — Receipt → Recipe Distillation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Pretendard+Variable:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <style>
+    /* === Tokens === */
+    :root {
+      --bg: #f3ede2;
+      --bg-card: #faf6ec;
+      --ink: #2a2620;
+      --ink-soft: #5a5145;
+      --ink-mute: #8a7e6c;
+      --ink-faint: #b8ad9a;
+      --rule: rgba(60, 50, 40, 0.18);
+      --accent: #4d6b3a;
+      /* teacher → student green */
+      --accent-warm: #8b3a2e;
+      /* receipt brown-red */
+      --accent-soft: #c9b88a;
+      --shadow: 4px 4px 0 var(--ink);
+      --serif: 'Newsreader', 'Noto Serif KR', Georgia, serif;
+      --sans: 'Pretendard Variable', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, monospace;
+    }
+
+    /* === Reset === */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    /* === Deck container === */
+    .deck {
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      padding: clamp(1.4rem, 3.8vh, 4rem) clamp(2rem, 4.5vw, 4.5rem);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: clamp(0.8rem, 2vh, 2.4rem);
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.5s ease, transform 0.6s ease;
+      pointer-events: none;
+    }
+
+    .slide.active {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    /* === Paper grain (shared) === */
+    .slide::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(circle at 18% 28%, rgba(165, 130, 80, 0.05) 0, transparent 42%),
+        radial-gradient(circle at 82% 72%, rgba(95, 80, 60, 0.04) 0, transparent 50%);
+      pointer-events: none;
+    }
+
+    /* === Header / footer === */
+    .slide header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: clamp(0.7rem, 0.95vw, 0.85rem);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-mute);
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: clamp(0.5rem, 1vh, 0.9rem);
+      z-index: 1;
+    }
+
+    .slide header .chapter {
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .slide footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: clamp(0.7rem, 0.9vw, 0.82rem);
+      color: var(--ink-mute);
+      border-top: 1px solid var(--rule);
+      padding-top: clamp(0.5rem, 1vh, 0.9rem);
+      z-index: 1;
+    }
+
+    .pagenum {
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: clamp(0.95rem, 1.2vw, 1.1rem);
+      color: var(--accent);
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    /* === Main content slot === */
+    .slide main {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: clamp(0.8rem, 2vh, 2rem);
+      position: relative;
+      z-index: 1;
+    }
+
+    /* === Typography === */
+    h1,
+    h2 {
+      font-family: var(--serif);
+      font-weight: 600;
+      letter-spacing: -0.018em;
+      line-height: 1.05;
+      color: var(--ink);
+    }
+
+    h1 {
+      font-size: clamp(2.3rem, 5vw, 4.4rem);
+      max-width: 22ch;
+    }
+
+    h1 em {
+      font-style: italic;
+      color: var(--accent);
+    }
+
+    h1 .warm {
+      color: var(--accent-warm);
+      font-style: italic;
+    }
+
+    h2 {
+      font-size: clamp(1.7rem, 3.2vw, 2.6rem);
+      max-width: 24ch;
+    }
+
+    .lead {
+      font-family: var(--serif);
+      font-size: clamp(1rem, 1.35vw, 1.25rem);
+      line-height: 1.5;
+      color: var(--ink-soft);
+      max-width: 56ch;
+    }
+
+    .eyebrow {
+      font-family: var(--mono);
+      font-size: clamp(0.72rem, 0.9vw, 0.85rem);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--accent);
+    }
+
+    /* === Cards / fact rows === */
+    .fact-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: clamp(0.8rem, 1.5vw, 1.4rem);
+    }
+
+    .card {
+      border: 1.5px solid var(--ink);
+      background: var(--bg-card);
+      padding: clamp(1rem, 1.8vh, 1.4rem) clamp(1rem, 1.8vw, 1.4rem);
+      border-radius: 4px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .card .label {
+      font-family: var(--mono);
+      font-size: clamp(0.65rem, 0.8vw, 0.75rem);
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--ink-mute);
+    }
+
+    .card .value {
+      font-family: var(--serif);
+      font-size: clamp(1.2rem, 1.7vw, 1.5rem);
+      font-weight: 600;
+      color: var(--ink);
+      line-height: 1.15;
+    }
+
+    .card .value .accent {
+      color: var(--accent);
+    }
+
+    .card .note {
+      font-size: clamp(0.82rem, 1vw, 0.95rem);
+      color: var(--ink-soft);
+      line-height: 1.45;
+    }
+
+    /* === Bullet list === */
+    ul.facts {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: clamp(0.55rem, 1vh, 0.85rem);
+      max-width: 64ch;
+    }
+
+    ul.facts li {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.7rem;
+      align-items: baseline;
+      font-size: clamp(1rem, 1.25vw, 1.15rem);
+      line-height: 1.5;
+      color: var(--ink-soft);
+    }
+
+    ul.facts li::before {
+      content: '·';
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 1.4em;
+      line-height: 1;
+      align-self: start;
+    }
+
+    ul.facts li b {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    ul.facts li code {
+      font-family: var(--mono);
+      font-size: 0.92em;
+      background: rgba(77, 107, 58, 0.1);
+      padding: 0.05em 0.4em;
+      border-radius: 3px;
+      color: var(--accent);
+    }
+
+    /* === Pipeline diagram (slide 3) === */
+    .pipeline {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: clamp(0.8rem, 1.6vw, 1.6rem);
+      margin-top: clamp(0.5rem, 1vh, 1rem);
+      max-width: 880px;
+    }
+
+    .pipeline .node {
+      border: 1.5px solid var(--ink);
+      background: var(--bg-card);
+      padding: clamp(0.9rem, 1.6vh, 1.3rem) clamp(1rem, 1.8vw, 1.5rem);
+      border-radius: 4px;
+      box-shadow: var(--shadow);
+    }
+
+    .pipeline .node .role {
+      font-family: var(--mono);
+      font-size: clamp(0.65rem, 0.8vw, 0.75rem);
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--ink-mute);
+      margin-bottom: 0.35rem;
+    }
+
+    .pipeline .node .name {
+      font-family: var(--serif);
+      font-size: clamp(1.15rem, 1.7vw, 1.5rem);
+      font-weight: 600;
+      line-height: 1.1;
+    }
+
+    .pipeline .node.teacher .name {
+      color: var(--accent-warm);
+    }
+
+    .pipeline .node.student .name {
+      color: var(--accent);
+    }
+
+    .pipeline .node .meta {
+      font-size: clamp(0.78rem, 0.95vw, 0.9rem);
+      color: var(--ink-soft);
+      margin-top: 0.3rem;
+      line-height: 1.4;
+    }
+
+    .pipeline .arrow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+      color: var(--accent);
+    }
+
+    .pipeline .arrow .glyph {
+      font-family: var(--serif);
+      font-size: clamp(1.6rem, 2.4vw, 2rem);
+      line-height: 1;
+    }
+
+    .pipeline .arrow .lbl {
+      font-family: var(--mono);
+      font-size: clamp(0.65rem, 0.8vw, 0.75rem);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--ink-mute);
+    }
+
+    /* === I/O blocks (slide 2) === */
+    .io {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: stretch;
+      gap: clamp(1rem, 2vw, 2rem);
+      max-width: 980px;
+    }
+
+    .io .col {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      border: 1.5px dashed var(--ink);
+      border-radius: 4px;
+      padding: clamp(1rem, 2vh, 1.5rem);
+      background: var(--bg-card);
+    }
+
+    .io .col .tag {
+      font-family: var(--mono);
+      font-size: clamp(0.7rem, 0.9vw, 0.82rem);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--ink-mute);
+    }
+
+    .io .col .what {
+      font-family: var(--serif);
+      font-weight: 600;
+      font-size: clamp(1.2rem, 1.8vw, 1.6rem);
+      line-height: 1.15;
+      color: var(--ink);
+    }
+
+    .io .col pre {
+      font-family: var(--mono);
+      font-size: clamp(0.78rem, 0.95vw, 0.92rem);
+      color: var(--ink-soft);
+      background: rgba(60, 50, 40, 0.05);
+      padding: 0.7rem 0.9rem;
+      border-radius: 3px;
+      line-height: 1.5;
+      overflow: hidden;
+      white-space: pre-wrap;
+    }
+
+    .io .col pre b {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .io .col pre .key {
+      color: var(--accent-warm);
+    }
+
+    .io .col pre .str {
+      color: var(--accent);
+    }
+
+    .io .arrow-h {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--serif);
+      font-size: clamp(1.8rem, 2.6vw, 2.2rem);
+      color: var(--accent);
+    }
+
+    /* === Title slide === */
+    .title-slide {
+      grid-template-rows: 1fr auto;
+    }
+
+    .title-slide main {
+      justify-content: end;
+      gap: clamp(1.4rem, 2.5vh, 2rem);
+    }
+
+    .title-slide .title-mark {
+      font-family: var(--mono);
+      font-size: clamp(0.75rem, 0.95vw, 0.88rem);
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--ink-mute);
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .title-slide .title-mark .swatch {
+      width: 14px;
+      height: 14px;
+      background: var(--accent-warm);
+      display: inline-block;
+    }
+
+    .title-slide h1 {
+      font-size: clamp(3rem, 7vw, 6rem);
+      line-height: 0.98;
+      max-width: 18ch;
+    }
+
+    .title-slide .sub {
+      font-family: var(--serif);
+      font-size: clamp(1.1rem, 1.6vw, 1.4rem);
+      color: var(--ink-soft);
+      max-width: 50ch;
+      line-height: 1.4;
+    }
+
+    .title-slide .credit {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 1.5rem;
+      align-items: end;
+      border-top: 1px solid var(--rule);
+      padding-top: clamp(0.8rem, 1.4vh, 1.2rem);
+      font-family: var(--mono);
+      font-size: clamp(0.75rem, 0.95vw, 0.88rem);
+      color: var(--ink-mute);
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+    }
+
+    /* === Failure slide accent (slide 6) === */
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: clamp(1rem, 2vw, 1.6rem);
+    }
+
+    .compare .col {
+      border: 1.5px solid var(--ink);
+      background: var(--bg-card);
+      padding: clamp(0.9rem, 1.6vh, 1.4rem) clamp(1rem, 1.8vw, 1.4rem);
+      border-radius: 4px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+    }
+
+    .compare .col.bad {
+      border-color: var(--accent-warm);
+    }
+
+    .compare .col.good {
+      border-color: var(--accent);
+    }
+
+    .compare .col .tag {
+      font-family: var(--mono);
+      font-size: clamp(0.7rem, 0.85vw, 0.8rem);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+    }
+
+    .compare .col.bad .tag {
+      color: var(--accent-warm);
+    }
+
+    .compare .col.good .tag {
+      color: var(--accent);
+    }
+
+    .compare .col h3 {
+      font-family: var(--serif);
+      font-size: clamp(1.1rem, 1.5vw, 1.35rem);
+      font-weight: 600;
+      line-height: 1.2;
+      color: var(--ink);
+    }
+
+    .compare .col p {
+      font-size: clamp(0.92rem, 1.1vw, 1.05rem);
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
+    .compare .col code {
+      font-family: var(--mono);
+      font-size: 0.88em;
+      background: rgba(60, 50, 40, 0.06);
+      padding: 0.05em 0.4em;
+      border-radius: 3px;
+      color: var(--ink);
+    }
+
+    .compare .col pre {
+      font-family: var(--mono);
+      font-size: clamp(0.74rem, 0.9vw, 0.88rem);
+      background: rgba(60, 50, 40, 0.05);
+      padding: 0.7rem 0.9rem;
+      border-radius: 3px;
+      line-height: 1.55;
+      color: var(--ink);
+      white-space: pre-wrap;
+      overflow: hidden;
+    }
+
+    .compare .col pre .dim {
+      color: var(--ink-mute);
+    }
+
+    .compare .col pre .ans {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .compare .col pre .gen {
+      color: var(--accent-warm);
+      font-weight: 500;
+    }
+
+    .takeaway {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.9rem;
+      align-items: baseline;
+      padding-top: clamp(0.4rem, 0.8vh, 0.8rem);
+    }
+
+    .takeaway .lbl {
+      font-family: var(--mono);
+      font-size: clamp(0.7rem, 0.9vw, 0.82rem);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--accent);
+      padding-top: 0.15em;
+    }
+
+    .takeaway p {
+      font-family: var(--serif);
+      font-size: clamp(1rem, 1.3vw, 1.2rem);
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    /* === Architecture flow (slide 6) === */
+    .arch {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+      align-items: stretch;
+      gap: clamp(0.4rem, 0.8vw, 0.8rem);
+      width: 100%;
+      max-width: 1100px;
+    }
+
+    .arch .box {
+      border: 1.5px solid var(--ink);
+      background: var(--bg-card);
+      padding: clamp(0.8rem, 1.4vh, 1.1rem) clamp(0.7rem, 1.2vw, 1rem);
+      border-radius: 4px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      min-width: 0;
+      position: relative;
+    }
+
+    .arch .box.frozen {
+      background: rgba(60, 50, 40, 0.04);
+      border-style: dashed;
+    }
+
+    .arch .box.lora {
+      border-color: var(--accent-warm);
+      border-width: 2px;
+    }
+
+    .arch .box .role {
+      font-family: var(--mono);
+      font-size: clamp(0.62rem, 0.75vw, 0.72rem);
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--ink-mute);
+    }
+
+    .arch .box .name {
+      font-family: var(--serif);
+      font-size: clamp(0.95rem, 1.25vw, 1.15rem);
+      font-weight: 600;
+      line-height: 1.15;
+      color: var(--ink);
+    }
+
+    .arch .box .sub {
+      font-size: clamp(0.72rem, 0.85vw, 0.82rem);
+      color: var(--ink-soft);
+      line-height: 1.35;
+    }
+
+    .arch .box .badge {
+      position: absolute;
+      top: -10px;
+      right: -8px;
+      font-family: var(--mono);
+      font-size: clamp(0.6rem, 0.72vw, 0.68rem);
+      background: var(--accent-warm);
+      color: var(--bg);
+      padding: 2px 7px;
+      border-radius: 999px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+
+    .arch .box.frozen .badge {
+      background: var(--ink-mute);
+    }
+
+    .arch .arr {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ink-mute);
+      font-family: var(--serif);
+      font-size: clamp(1.2rem, 1.6vw, 1.5rem);
+    }
+
+    .arch-legend {
+      display: flex;
+      gap: clamp(1rem, 2vw, 1.8rem);
+      align-items: center;
+      font-family: var(--mono);
+      font-size: clamp(0.72rem, 0.88vw, 0.82rem);
+      color: var(--ink-mute);
+      margin-top: clamp(0.4rem, 0.8vh, 0.7rem);
+    }
+
+    .arch-legend .lk {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .arch-legend .swatch {
+      width: 14px;
+      height: 10px;
+      border: 1.5px solid var(--ink);
+      border-radius: 2px;
+    }
+
+    .arch-legend .swatch.lora {
+      border-color: var(--accent-warm);
+      border-width: 2px;
+    }
+
+    .arch-legend .swatch.frozen {
+      border-style: dashed;
+      background: rgba(60, 50, 40, 0.04);
+    }
+
+    /* === Example output (slide 7) === */
+    .example {
+      border-left: 3px solid var(--accent-warm);
+      background: rgba(139, 58, 46, 0.04);
+      padding: clamp(0.8rem, 1.4vh, 1.1rem) clamp(1rem, 1.6vw, 1.4rem);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .example .lbl {
+      font-family: var(--mono);
+      font-size: clamp(0.7rem, 0.85vw, 0.8rem);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--accent-warm);
+    }
+
+    .example pre {
+      font-family: var(--mono);
+      font-size: clamp(0.78rem, 0.95vw, 0.92rem);
+      color: var(--ink);
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .example pre .dim {
+      color: var(--ink-mute);
+    }
+
+    /* === Summary slide === */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: clamp(1rem, 1.8vw, 1.5rem);
+    }
+
+    .summary-grid .block {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .summary-grid .block .h {
+      font-family: var(--mono);
+      font-size: clamp(0.72rem, 0.9vw, 0.82rem);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--accent);
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 0.4rem;
+    }
+
+    .summary-grid .block ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .summary-grid .block li {
+      font-size: clamp(0.95rem, 1.15vw, 1.08rem);
+      color: var(--ink-soft);
+      line-height: 1.5;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.5rem;
+      align-items: baseline;
+    }
+
+    .summary-grid .block li::before {
+      content: '·';
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .summary-grid .block li b {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    /* === Demo CTA (recap slide) === */
+    .demo-cta {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: clamp(1rem, 2vw, 1.6rem);
+      align-items: center;
+      border: 1.5px solid var(--ink);
+      background: var(--bg-card);
+      padding: clamp(0.8rem, 1.4vh, 1.1rem) clamp(1rem, 1.8vw, 1.4rem);
+      border-radius: 4px;
+      box-shadow: var(--shadow);
+    }
+
+    .demo-cta .qr {
+      width: clamp(72px, 7vw, 96px);
+      height: clamp(72px, 7vw, 96px);
+      display: block;
+    }
+
+    .demo-cta .body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .demo-cta .lbl {
+      font-family: var(--mono);
+      font-size: clamp(0.7rem, 0.88vw, 0.82rem);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--accent-warm);
+    }
+
+    .demo-cta .url {
+      font-family: var(--serif);
+      font-size: clamp(1.1rem, 1.55vw, 1.45rem);
+      font-weight: 600;
+      color: var(--ink);
+      text-decoration: none;
+      letter-spacing: -0.005em;
+    }
+
+    .demo-cta .url:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+
+    .demo-cta .meta {
+      font-size: clamp(0.82rem, 1vw, 0.95rem);
+      color: var(--ink-soft);
+      line-height: 1.4;
+    }
+
+    /* === Reveal === */
+    .reveal-target {
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.5s ease 0.15s, transform 0.5s ease 0.15s;
+    }
+
+    .slide.active .reveal-target {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .slide.active .reveal-target:nth-child(2) {
+      transition-delay: 0.25s;
+    }
+
+    .slide.active .reveal-target:nth-child(3) {
+      transition-delay: 0.35s;
+    }
+
+    .slide.active .reveal-target:nth-child(4) {
+      transition-delay: 0.45s;
+    }
+
+    /* === Nav (bottom dots) === */
+    .nav {
+      position: fixed;
+      bottom: clamp(0.8rem, 1.5vh, 1.2rem);
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 0.5rem;
+      z-index: 100;
+      background: rgba(243, 237, 226, 0.85);
+      backdrop-filter: blur(4px);
+      padding: 0.45rem 0.9rem;
+      border-radius: 999px;
+      border: 1px solid var(--rule);
+    }
+
+    .nav button {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ink-faint);
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      transition: background 0.2s ease, transform 0.2s ease;
+    }
+
+    .nav button:hover {
+      transform: scale(1.3);
+    }
+
+    .nav button.active {
+      background: var(--accent);
+      transform: scale(1.3);
+    }
+
+    .hint {
+      position: fixed;
+      bottom: clamp(0.8rem, 1.5vh, 1.2rem);
+      right: clamp(1rem, 2vw, 1.5rem);
+      font-family: var(--mono);
+      font-size: clamp(0.65rem, 0.8vw, 0.72rem);
+      color: var(--ink-mute);
+      letter-spacing: 0.1em;
+      z-index: 100;
+      opacity: 0.7;
+    }
+
+    .hint kbd {
+      border: 1px solid var(--rule);
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: var(--bg-card);
+      font-family: inherit;
+      font-size: 0.95em;
+    }
+
+    /* === Reduced motion === */
+    @media (prefers-reduced-motion: reduce) {
+
+      .slide,
+      .reveal-target,
+      .nav button {
+        transition: opacity 0.2s ease;
+        transform: none !important;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="deck" id="deck">
+
+    <!-- ========== Slide 1 — Title ========== -->
+    <section class="slide title-slide active" data-slide="1">
+      <header>
+        <span class="chapter">Bill &amp; Meal</span>
+        <span>2026</span>
+      </header>
+      <main>
+        <div class="title-mark reveal-target"><span class="swatch"></span> Receipt → Recipe · Distillation Project</div>
+        <h1 class="reveal-target">영수증 이미지에서<br>레시피를 추론하기</h1>
+        <p class="sub reveal-target">Claude를 teacher로 사용해 Gemma 4 (E2B / E4B)를 LoRA로 distill. 102개의 (영수증, 레시피) 페어로 학습.
+        </p>
+        <div class="credit reveal-target">
+          <span>Bill and Meal</span>
+          <span></span>
+          <span>https://github.com/nik-pgh/bill_and_meal</span>
+        </div>
+      </main>
+    </section>
+
+    <!-- ========== Slide 2 — Problem definition ========== -->
+    <section class="slide" data-slide="2">
+      <header>
+        <span class="chapter">01 — Problem</span>
+        <span>Bill &amp; Meal</span>
+      </header>
+      <main>
+        <div class="reveal-target">
+          <span class="eyebrow">Task</span>
+          <h2 style="margin-top:0.4rem;">식료품 영수증을 보고 장보기 재료로 만들 수 있는 레시피 출력</h2>
+        </div>
+        <div class="io reveal-target">
+          <div class="col">
+            <span class="tag">Input</span>
+            <span class="what">영수증 이미지 (JPEG / PNG / WebP)</span>
+            <pre>· 식료품 항목명, 수량, 가격 포함
+· SROIE / UniqueData 스타일
+· &gt; 5MB 자동 리사이즈</pre>
+          </div>
+          <div class="arrow-h">→</div>
+          <div class="col">
+            <span class="tag">Output</span>
+            <span class="what">구조화된 레시피 (JSON)</span>
+            <pre>{
+  <span class="key">"recipe_name"</span>: <span class="str">"..."</span>,
+  <span class="key">"ingredients"</span>: [...],
+  <span class="key">"steps"</span>: [...],
+  <span class="key">"cook_time"</span>: <span class="str">"..."</span>
+}</pre>
+          </div>
+        </div>
+      </main>
+      <footer>
+        <span>Bill &amp; Meal</span>
+        <span class="pagenum">02 / 10</span>
+      </footer>
+    </section>
+
+    <!-- ========== Slide 3 — Approach: Distillation ========== -->
+    <section class="slide" data-slide="3">
+      <header>
+        <span class="chapter">02 — Approach</span>
+        <span>Knowledge Distillation</span>
+      </header>
+      <main>
+        <div class="reveal-target">
+          <span class="eyebrow">Method</span>
+          <h2 style="margin-top:0.4rem;">Teacher의 출력을 정답으로 삼아<br>Student 모델 SFT</h2>
+        </div>
+        <div class="pipeline reveal-target">
+          <div class="node teacher">
+            <div class="role">Teacher</div>
+            <div class="name">Claude API</div>
+            <div class="meta">claude-sonnet-4 · 2000 max_tokens</div>
+          </div>
+          <div class="arrow">
+            <span class="lbl">distill</span>
+            <span class="glyph">⟶</span>
+            <span class="lbl">supervise</span>
+          </div>
+          <div class="node student">
+            <div class="role">Student</div>
+            <div class="name">Gemma 4 E2B / E4B</div>
+            <div class="meta">QLoRA · 4-bit · bf16 compute</div>
+          </div>
+        </div>
+        <ul class="facts reveal-target">
+          <li><span><b>학습 데이터:</b> Claude가 102장의 영수증 이미지에 직접 라벨링한 (image, recipe) pair</span></li>
+          <li><span><b>학습 방식:</b> Causal LM loss — student가 teacher의 토큰 시퀀스를 그대로 예측</span></li>
+          <li><span><b>최종 결과물:</b> LoRA adapter (수백 MB) — base 모델은 그대로 두고 adapter만 배포</span></li>
+        </ul>
+      </main>
+      <footer>
+        <span>Bill &amp; Meal</span>
+        <span class="pagenum">03 / 10</span>
+      </footer>
+    </section>
+
+    <!-- ========== Slide 4 — Data ========== -->
+    <section class="slide" data-slide="4">
+      <header>
+        <span class="chapter">03 — Data</span>
+        <span>102 labeled pairs</span>
+      </header>
+      <main>
+        <div class="reveal-target">
+          <span class="eyebrow">Dataset</span>
+          <h2 style="margin-top:0.4rem;">영수증 SROIE + UniqueData <br> 라벨 Claude로 합성</h2>
+        </div>
+        <div class="fact-grid reveal-target">
+          <div class="card">
+            <span class="label">Source</span>
+            <span class="value">SROIE <span class="accent">+</span> UniqueData</span>
+            <span class="note">Singapore/Malaysia 영수증 + HF ocr-receipts. 식료품 영수증만 필터링 (~125 / 973)</span>
+          </div>
+          <div class="card">
+            <span class="label">Volume</span>
+            <span class="value"><span class="accent">102</span> pairs</span>
+            <span class="note">image · recipe JSON 페어. 최종 데이터셋 (검증 통과)</span>
+          </div>
+          <div class="card">
+            <span class="label">Labeling cost</span>
+            <span class="value">~ <span class="accent">$0.03</span> / sample</span>
+            <span class="note">Claude Sonnet 4 API · 총 ~$3 수준</span>
+          </div>
+          <div class="card">
+            <span class="label">Validation</span>
+            <span class="value">자동 reject</span>
+            <span class="note">JSON 파싱 실패 / 재료 커버리지 &lt; 30% / 잘못된 카테고리</span>
+          </div>
+        </div>
+        <ul class="facts reveal-target">
+          <li><span><b>Manifest:</b> <code>data/manifest.jsonl</code> 로 라벨링 상태 추적 — 중복 호출 방지</span></li>
+          <li><span><b>이미지 전처리:</b> &gt; 5MB 자동 리사이즈, WebP/PNG/JPEG 자동 감지</span></li>
+        </ul>
+      </main>
+      <footer>
+        <span>Bill &amp; Meal</span>
+        <span class="pagenum">04 / 10</span>
+      </footer>
+    </section>
+
+    <!-- ========== Slide 5 — Model & training ========== -->
+    <section class="slide" data-slide="5">
+      <header>
+        <span class="chapter">04 — Training</span>
+        <span>Gemma 4 · QLoRA</span>
+      </header>
+      <main>
+        <div class="reveal-target">
+          <span class="eyebrow">Setup</span>
+          <h2 style="margin-top:0.4rem;">트레이닝 환경 셋업</h2>
+        </div>
+        <div class="fact-grid reveal-target">
+          <div class="card">
+            <span class="label">Student model</span>
+            <span class="value">Gemma 4 <span class="accent">E2B</span></span>
+            <span class="note">Colab T4에서는 PelliGema. A100/L4에서는 Gemma4 E2B, E4B 훈련 가능.</span>
+          </div>
+          <div class="card">
+            <span class="label">Quantization</span>
+            <span class="value">4-bit NF4</span>
+            <span class="note">bnb · double quant · bf16 compute_dtype</span>
+          </div>
+          <div class="card">
+            <span class="label">LoRA</span>
+            <span class="value">r=16 · α=32</span>
+            <span class="note">dropout 0.05 · target: language_model q/k/v/o/gate/up/down_proj</span>
+          </div>
+          <div class="card">
+            <span class="label">Batch / Optim</span>
+            <span class="value">eff. batch <span class="accent">16</span></span>
+            <span class="note">2 × grad_accum 8 · lr 2e-4 · bf16 · gradient checkpointing</span>
+          </div>
+        </div>
+        <ul class="facts reveal-target">
+          <li><span><b>5 epochs</b> + <code>early_stopping_patience=2</code></span></li>
+          <li><span>best model = <code>eval_loss</code>최저</span></li>
+          <li><span><b>Vision tower(SigLIP)는 freeze.</b> LoRA는 LLM 파트에만</span></li>
+        </ul>
+      </main>
+      <footer>
+        <span>Bill &amp; Meal</span>
+        <span class="pagenum">05 / 10</span>
+      </footer>
+    </section>
+
+    <!-- ========== Slide 6 — Gotcha (1/2): 두 번 시도, 두 번 다 다른 방식으로 깨짐 ========== -->
+    <section class="slide" data-slide="6">
+      <header>
+        <span class="chapter">05 — EXPERIMENTS (1/2)</span>
+        <span>두 번의 시도</span>
+      </header>
+      <main>
+        <div class="reveal-target">
+          <span class="eyebrow">LoRA Adapter Placement</span>
+          <h2 style="margin-top:0.4rem; max-width:34ch;">Gemma 4 = vision tower + language model</h2>
+        </div>
+        <ul class="facts reveal-target" style="max-width:84ch;">
+          <li><span><b>Vision tower (SigLIP):</b> 이미지를 임베딩 시퀀스로 변환.</li>
+          <li><span><b>Language model (Gemma decoder):</b> vision 임베딩 + 텍스트 토큰 → 다음 토큰 생성.</span></li>
+        </ul>
+        <div class="arch reveal-target">
+          <div class="box">
+            <span class="role">Input</span>
+            <span class="name">영수증 이미지</span>
+            <span class="sub">resize · normalize</span>
+          </div>
+          <div class="arr">→</div>
+          <div class="box">
+            <span class="role">Vision tower</span>
+            <span class="name">SigLIP encoder</span>
+            <span class="sub">image → embeddings</span>
+          </div>
+          <div class="arr">→</div>
+          <div class="box">
+            <span class="role">Language model</span>
+            <span class="name">Gemma decoder</span>
+            <span class="sub">embeddings + text → tokens</span>
+          </div>
+          <div class="arr">→</div>
+          <div class="box">
+            <span class="role">Output</span>
+            <span class="name">recipe JSON</span>
+            <span class="sub">ingredients · steps</span>
+          </div>
+        </div>
+        <div class="compare reveal-target">
+          <div class="col bad">
+            <span class="tag">v3 — dual-target</span>
+            <h3>LoRA on <b>vision tower + LLM</b></h3>
+            <p>가설: LLM-only가 generic 응답만 내는 걸 보고 vision tower에도 LoRA를 추가.</p>
+            <p>관측: OCR이 제대로 작동하지 않음. 영수증에 없는 정보를 추출함. Hallucination.</p>
+          </div>
+          <div class="col bad">
+            <span class="tag">v4 — LLM-only</span>
+            <h3>LoRA on <b>LLM only</b>, vision tower freeze</h3>
+            <p>가설: 102개로 SigLIP를 흔들면 vision 표현이 망가짐 → freeze.</p>
+            <p>관측: 학생이 <b>이미지를 못 봄</b> ("Please provide the image of your grocery receipt 😊").</p>
+          </div>
+        </div>
+      </main>
+      <footer>
+        <span>Bill &amp; Meal</span>
+        <span class="pagenum">06 / 10</span>
+      </footer>
+    </section>
+
+    <!-- ========== Slide 7 — Gotcha (2/2): v4 실제 출력 + confounds + 현재 가설 ========== -->
+    <section class="slide" data-slide="7">
+      <header>
+        <span class="chapter">05 — EXPERIMENTS (2/2)</span>
+        <span>아직 안 풀림</span>
+      </header>
+      <main>
+        <div class="reveal-target">
+          <span class="eyebrow">v4 실제 학생 출력</span>
+          <h2 style="margin-top:0.4rem;">Vision tower freeze → 이미지가 입력되었는데도 인식하지 못함</h2>
+        </div>
+        <div class="example reveal-target">
+          <span class="lbl">Receipt: eggs · red bell pepper · tomatoes · mozzarella · avocado &nbsp;|&nbsp; Teacher:
+            "Mediterranean Veggie Scramble..."</span>
+          <pre><span class="dim">student (v4):</span> Please provide the image of the grocery receipt
+                so I can help you with recipe ideas! 😊
+
+<span class="dim">student (v4, 다른 샘플):</span> Since there is no actual text visible
+                in your prompt (only a blank grey screen), please describe
+                or upload an actual receipt...</pre>
+        </div>
+        <ul class="facts reveal-target" style="max-width:84ch;">
+          <li><span><b>가설:</b> SigLIP을 freeze한 채 LLM에만 LoRA를 적용하면, LoRA 가중치가 vision token을 무시하는 방향으로 학습됨 → 학생이
+              "이미지가 없다"고 응답.</span></li>
+        </ul>
+        <div class="takeaway reveal-target">
+          <span class="lbl">Next</span>
+          <p>①<b>데이터 확장(1000+):</b> vision tower LoRA 재시도 가능. ② <b>중간 옵션:</b> vision tower만 작은 r (ex. r=4)로, LLM은
+            freeze 시도.</p>
+        </div>
+      </main>
+      <footer>
+        <span>Bill &amp; Meal</span>
+        <span class="pagenum">07 / 10</span>
+      </footer>
+    </section>
+
+    <!-- ========== Slide 8 — Evaluation ========== -->
+    <section class="slide" data-slide="8">
+      <header>
+        <span class="chapter">06 — Evaluation</span>
+        <span>평가</span>
+      </header>
+      <main>
+        <div class="reveal-target">
+          <span class="eyebrow">Metrics</span>
+          <h2 style="margin-top:0.4rem;">학습 중 메트릭과 학습 후 메트릭을 분리</h2>
+        </div>
+        <div class="fact-grid reveal-target">
+          <div class="card">
+            <span class="label">During training</span>
+            <span class="value"><code
+                style="font-family:var(--mono);font-size:0.85em;background:rgba(77,107,58,0.1);padding:0.05em 0.4em;border-radius:3px;color:var(--accent);">eval_loss</code></span>
+            <span class="note">label-masked CE on validation split. Best-model selection 기준. Teacher-forced라 generation
+              품질은 못 봄.</span>
+          </div>
+          <div class="card">
+            <span class="label">Post-training · structural</span>
+            <span class="value">ingredient_iou</span>
+            <span class="note">Teacher와 student 레시피의 재료 mention Jaccard similarity</span>
+          </div>
+          <div class="card">
+            <span class="label">Post-training · structural</span>
+            <span class="value">action_alignment</span>
+            <span class="note">(cooking_verb, ingredient) 페어 recall — 조리 동작 일치도</span>
+          </div>
+          <div class="card">
+            <span class="label">Post-training · LLM-as-judge</span>
+            <span class="value">Claude judge</span>
+            <span class="note">Teacher vs Student head-to-head 비교 점수. 정성적 검증.</span>
+          </div>
+        </div>
+        <ul class="facts reveal-target">
+          <li><span>학습 중엔 <code>eval_loss</code>만 보고, 나머지 3개는 학습 후 <code>scripts/evaluate.py</code>로 평가.</b></span></li>
+        </ul>
+      </main>
+      <footer>
+        <span>Bill &amp; Meal</span>
+        <span class="pagenum">08 / 10</span>
+      </footer>
+    </section>
+
+    <!-- ========== Slide 9 — Teacher forcing의 한계 ========== -->
+    <section class="slide" data-slide="9">
+      <header>
+        <span class="chapter">06 — Evaluation</span>
+        <span>한계</span>
+      </header>
+      <main>
+        <div class="reveal-target">
+          <span class="eyebrow">Teacher forcing</span>
+          <h2 style="margin-top:0.4rem; max-width:42ch;">Loss가 자기 출력 누적은 평가 안 함</h2>
+        </div>
+        <div class="reveal-target">
+          <p class="lead" style="max-width:78ch;">
+            <b>Loss</b> = 매 위치에서 "이전 토큰을 보고 다음 토큰을 얼마나 잘 맞췄나"의 cross-entropy 평균.
+            낮을수록 좋음. 학습/eval 모두 같은 방식으로 계산.
+          </p>
+        </div>
+        <div class="compare reveal-target">
+          <div class="col" style="border-color: var(--accent);">
+            <span class="tag" style="color: var(--accent);">학습 / eval — Teacher forcing</span>
+            <h3>매 위치에 정답을 깔고 다음 한 토큰만 평가 (한 번의 forward로 전체 시퀀스)</h3>
+            <pre><span class="dim">input :</span>  <span class="ans">[Mix] [the] [eggs] [and] [add]</span>   <span class="dim">← 모두 정답 토큰</span>
+<span class="dim">predict:</span> → "salt"   <span class="dim">← 한 토큰만 측정 (cross-entropy)</span></pre>
+            <p>병렬 처리 가능 → 빠름·안정적인 학습 신호. <b>그러나 모델 자기 출력이 input으로 들어간 적은 한 번도 없음.</b></p>
+          </div>
+          <div class="col" style="border-color: var(--accent-warm);">
+            <span class="tag" style="color: var(--accent-warm);">배포 — Autoregressive generate</span>
+            <h3>토큰 하나씩, 자기 출력을 다음 input에 다시 붙이며 진행</h3>
+            <pre><span class="dim">step 1:</span> <span class="ans">[Mix]</span>            → <span class="gen">"the"</span>
+<span class="dim">step 2:</span> <span class="ans">[Mix,</span> <span class="gen">the]</span>       → <span class="gen">"eggs"</span>
+<span class="dim">step 3:</span> <span class="ans">[Mix,</span> <span class="gen">the, eggs]</span> → <span class="gen">"and"</span>   ...</pre>
+            <p>모델 자기 출력이 누적적으로 input으로 들어감. <b>학습에서 한 번도 본 적 없는 입력 분포</b> (exposure bias). 한 번 어긋나면 뒤로 갈수록 더 어긋남.</p>
+          </div>
+        </div>
+        <div class="takeaway reveal-target">
+          <span class="lbl">v3 evidence</span>
+          <p>v3 모델은 <code>val_loss 0.59</code> (정상)인데 generate는 <code>"rice rice rice rice ..."</code>. Teacher-forced
+            loss는 매 위치를 정답에 conditioning하므로 <b>누적 collapse를 잡을 신호 자체가 없음.</b> → ingredient_iou / Claude judge 같은 메트릭은 진짜
+            generate가 필요해서 학습 후 <code>scripts/evaluate.py</code>로 따로 측정.</p>
+        </div>
+      </main>
+      <footer>
+        <span>Bill &amp; Meal</span>
+        <span class="pagenum">09 / 10</span>
+      </footer>
+    </section>
+
+    <!-- ========== Slide 10 — Summary ========== -->
+    <section class="slide" data-slide="10">
+      <header>
+        <span class="chapter">07 — Recap</span>
+        <span>정리</span>
+      </header>
+      <main>
+        <div class="reveal-target">
+          <span class="eyebrow">한 페이지 정리</span>
+          <h2 style="margin-top:0.4rem;">Bill &amp; Meal — 현재 상태</h2>
+        </div>
+        <div class="summary-grid reveal-target">
+          <div class="block">
+            <div class="h">Pipeline</div>
+            <ul>
+              <li><span>Receipt 이미지 → Claude API → recipe JSON 102개</span></li>
+              <li><span>같은 입력에 같은 출력을 내도록 Gemma 4 E2B 를 QLoRA로 fine-tune</span></li>
+              <li><span>최종 산출물은 LoRA adapter (~수백 MB)</span></li>
+            </ul>
+          </div>
+          <div class="block">
+            <div class="h">Setup</div>
+            <ul>
+              <li><span><b>Model:</b> Gemma 4 E2B (T4) / E4B (A100·L4)</span></li>
+              <li><span><b>LoRA:</b> r=16, α=32, language_model only</span></li>
+              <li><span><b>Train:</b> 4-bit NF4, bf16, eff. batch 16, 5 epochs</span></li>
+            </ul>
+          </div>
+          <div class="block">
+            <div class="h">현재 상태 (미해결)</div>
+            <ul>
+              <li><span>v3 (LoRA 양쪽): repetition collapse — 단, generate 파라미터 영향 가능성 있음</span></li>
+              <li><span>v4 (LLM-only LoRA): 학생이 이미지를 인식 못 함</span></li>
+              <li><span>val_loss만으론 generation 품질 못 잡음 → epoch별 generation callback 추가</span></li>
+            </ul>
+          </div>
+          <div class="block">
+            <div class="h">다음</div>
+            <ul>
+              <li><span>Generate ablation — v3에 repetition_penalty만 붙여 재현 여부 확인</span></li>
+              <li><span>데이터 1000+ 확장 후 vision tower LoRA 재시도</span></li>
+              <li><span>중간안: vision tower만 작은 r로, LLM은 freeze</span></li>
+            </ul>
+          </div>
+        </div>
+        <a class="demo-cta reveal-target" href="https://nik-pgh--bill-and-meal-web.modal.run/" target="_blank" rel="noopener" style="text-decoration:none;">
+          <svg class="qr" viewBox="0 0 37 37" shape-rendering="crispEdges" aria-label="QR code to demo"><rect width="37" height="37" fill="#faf6ec"/><path d="M2 2h7v1h-7zM12 2h3v1h-3zM18 2h1v1h-1zM20 2h2v1h-2zM25 2h1v1h-1zM28 2h7v1h-7zM2 3h1v1h-1zM8 3h1v1h-1zM11 3h1v1h-1zM14 3h1v1h-1zM17 3h2v1h-2zM20 3h1v1h-1zM24 3h1v1h-1zM26 3h1v1h-1zM28 3h1v1h-1zM34 3h1v1h-1zM2 4h1v1h-1zM4 4h3v1h-3zM8 4h1v1h-1zM10 4h3v1h-3zM16 4h2v1h-2zM22 4h3v1h-3zM26 4h1v1h-1zM28 4h1v1h-1zM30 4h3v1h-3zM34 4h1v1h-1zM2 5h1v1h-1zM4 5h3v1h-3zM8 5h1v1h-1zM10 5h1v1h-1zM14 5h1v1h-1zM17 5h1v1h-1zM20 5h2v1h-2zM23 5h1v1h-1zM26 5h1v1h-1zM28 5h1v1h-1zM30 5h3v1h-3zM34 5h1v1h-1zM2 6h1v1h-1zM4 6h3v1h-3zM8 6h1v1h-1zM10 6h3v1h-3zM15 6h5v1h-5zM22 6h2v1h-2zM25 6h2v1h-2zM28 6h1v1h-1zM30 6h3v1h-3zM34 6h1v1h-1zM2 7h1v1h-1zM8 7h1v1h-1zM10 7h1v1h-1zM16 7h1v1h-1zM21 7h1v1h-1zM24 7h1v1h-1zM26 7h1v1h-1zM28 7h1v1h-1zM34 7h1v1h-1zM2 8h7v1h-7zM10 8h1v1h-1zM12 8h1v1h-1zM14 8h1v1h-1zM16 8h1v1h-1zM18 8h1v1h-1zM20 8h1v1h-1zM22 8h1v1h-1zM24 8h1v1h-1zM26 8h1v1h-1zM28 8h7v1h-7zM10 9h2v1h-2zM13 9h2v1h-2zM18 9h1v1h-1zM21 9h5v1h-5zM2 10h1v1h-1zM4 10h5v1h-5zM12 10h4v1h-4zM19 10h1v1h-1zM21 10h1v1h-1zM24 10h2v1h-2zM28 10h5v1h-5zM2 11h1v1h-1zM5 11h3v1h-3zM10 11h1v1h-1zM12 11h1v1h-1zM15 11h1v1h-1zM18 11h5v1h-5zM25 11h1v1h-1zM28 11h2v1h-2zM31 11h2v1h-2zM34 11h1v1h-1zM3 12h2v1h-2zM7 12h3v1h-3zM12 12h2v1h-2zM15 12h5v1h-5zM24 12h1v1h-1zM30 12h1v1h-1zM32 12h2v1h-2zM3 13h2v1h-2zM9 13h2v1h-2zM14 13h2v1h-2zM17 13h4v1h-4zM22 13h1v1h-1zM27 13h1v1h-1zM30 13h4v1h-4zM2 14h2v1h-2zM8 14h2v1h-2zM13 14h1v1h-1zM16 14h3v1h-3zM21 14h7v1h-7zM29 14h3v1h-3zM33 14h1v1h-1zM2 15h1v1h-1zM4 15h1v1h-1zM6 15h1v1h-1zM9 15h1v1h-1zM11 15h1v1h-1zM13 15h1v1h-1zM15 15h1v1h-1zM17 15h1v1h-1zM20 15h1v1h-1zM25 15h1v1h-1zM28 15h1v1h-1zM32 15h3v1h-3zM3 16h1v1h-1zM8 16h1v1h-1zM10 16h2v1h-2zM13 16h6v1h-6zM20 16h1v1h-1zM22 16h2v1h-2zM27 16h3v1h-3zM33 16h1v1h-1zM2 17h1v1h-1zM6 17h1v1h-1zM11 17h3v1h-3zM17 17h1v1h-1zM23 17h1v1h-1zM27 17h2v1h-2zM32 17h1v1h-1zM3 18h1v1h-1zM6 18h5v1h-5zM16 18h2v1h-2zM19 18h1v1h-1zM26 18h2v1h-2zM29 18h2v1h-2zM34 18h1v1h-1zM3 19h1v1h-1zM5 19h1v1h-1zM7 19h1v1h-1zM10 19h1v1h-1zM12 19h1v1h-1zM15 19h2v1h-2zM18 19h1v1h-1zM20 19h4v1h-4zM25 19h2v1h-2zM28 19h2v1h-2zM31 19h2v1h-2zM34 19h1v1h-1zM2 20h1v1h-1zM4 20h1v1h-1zM7 20h2v1h-2zM12 20h1v1h-1zM15 20h4v1h-4zM20 20h1v1h-1zM22 20h2v1h-2zM27 20h4v1h-4zM32 20h2v1h-2zM5 21h1v1h-1zM9 21h1v1h-1zM11 21h2v1h-2zM14 21h2v1h-2zM17 21h2v1h-2zM23 21h4v1h-4zM29 21h6v1h-6zM2 22h1v1h-1zM8 22h2v1h-2zM11 22h1v1h-1zM13 22h1v1h-1zM15 22h1v1h-1zM20 22h2v1h-2zM23 22h1v1h-1zM25 22h1v1h-1zM29 22h3v1h-3zM33 22h1v1h-1zM2 23h1v1h-1zM4 23h1v1h-1zM10 23h2v1h-2zM13 23h2v1h-2zM17 23h3v1h-3zM22 23h1v1h-1zM24 23h2v1h-2zM28 23h1v1h-1zM31 23h1v1h-1zM34 23h1v1h-1zM2 24h1v1h-1zM5 24h1v1h-1zM7 24h3v1h-3zM19 24h1v1h-1zM21 24h1v1h-1zM23 24h2v1h-2zM26 24h3v1h-3zM30 24h1v1h-1zM33 24h1v1h-1zM2 25h1v1h-1zM4 25h3v1h-3zM14 25h2v1h-2zM18 25h1v1h-1zM20 25h7v1h-7zM28 25h1v1h-1zM30 25h4v1h-4zM2 26h1v1h-1zM4 26h6v1h-6zM12 26h2v1h-2zM15 26h1v1h-1zM19 26h1v1h-1zM21 26h1v1h-1zM26 26h5v1h-5zM33 26h2v1h-2zM10 27h1v1h-1zM13 27h3v1h-3zM18 27h5v1h-5zM26 27h1v1h-1zM30 27h1v1h-1zM32 27h3v1h-3zM2 28h7v1h-7zM11 28h1v1h-1zM17 28h3v1h-3zM24 28h3v1h-3zM28 28h1v1h-1zM30 28h1v1h-1zM32 28h2v1h-2zM2 29h1v1h-1zM8 29h1v1h-1zM10 29h1v1h-1zM13 29h1v1h-1zM17 29h5v1h-5zM25 29h2v1h-2zM30 29h4v1h-4zM2 30h1v1h-1zM4 30h3v1h-3zM8 30h1v1h-1zM10 30h1v1h-1zM13 30h2v1h-2zM16 30h1v1h-1zM18 30h1v1h-1zM22 30h3v1h-3zM26 30h6v1h-6zM33 30h2v1h-2zM2 31h1v1h-1zM4 31h3v1h-3zM8 31h1v1h-1zM10 31h1v1h-1zM12 31h2v1h-2zM16 31h2v1h-2zM20 31h1v1h-1zM25 31h3v1h-3zM30 31h2v1h-2zM34 31h1v1h-1zM2 32h1v1h-1zM4 32h3v1h-3zM8 32h1v1h-1zM10 32h2v1h-2zM15 32h4v1h-4zM22 32h3v1h-3zM28 32h2v1h-2zM31 32h2v1h-2zM2 33h1v1h-1zM8 33h1v1h-1zM12 33h1v1h-1zM15 33h1v1h-1zM17 33h1v1h-1zM20 33h1v1h-1zM23 33h3v1h-3zM27 33h2v1h-2zM30 33h3v1h-3zM2 34h7v1h-7zM10 34h2v1h-2zM15 34h1v1h-1zM17 34h1v1h-1zM19 34h2v1h-2zM24 34h3v1h-3zM28 34h2v1h-2zM33 34h1v1h-1z" fill="#2a2620"/></svg>
+          <div class="body">
+            <span class="lbl">Try it · 직접 해보세요 →</span>
+            <span class="url">nik-pgh--bill-and-meal-web.modal.run</span>
+            <span class="meta">QR 스캔 또는 클릭. 영수증 사진 업로드 → 레시피 추천. <b>첫 호출은 cold start 30~60초.</b></span>
+          </div>
+        </a>
+      </main>
+      <footer>
+        <span>Bill &amp; Meal · 2026</span>
+        <span class="pagenum">10 / 10 · fin.</span>
+      </footer>
+    </section>
+
+  </main>
+
+  <!-- Nav dots -->
+  <nav class="nav" id="nav" aria-label="Slide navigation"></nav>
+  <div class="hint"><kbd>←</kbd> <kbd>→</kbd> · <kbd>space</kbd></div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const nav = document.getElementById('nav');
+      let current = 0;
+      let isAnimating = false;
+
+      // Build nav dots
+      slides.forEach((_, i) => {
+        const btn = document.createElement('button');
+        btn.setAttribute('aria-label', `Go to slide ${i + 1}`);
+        if (i === 0) btn.classList.add('active');
+        btn.addEventListener('click', () => goTo(i));
+        nav.appendChild(btn);
+      });
+
+      function goTo(idx) {
+        if (idx < 0 || idx >= slides.length || idx === current || isAnimating) return;
+        isAnimating = true;
+        slides[current].classList.remove('active');
+        slides[idx].classList.add('active');
+        nav.children[current].classList.remove('active');
+        nav.children[idx].classList.add('active');
+        current = idx;
+        setTimeout(() => { isAnimating = false; }, 600);
+      }
+
+      // Keyboard
+      document.addEventListener('keydown', (e) => {
+        switch (e.key) {
+          case 'ArrowRight':
+          case 'PageDown':
+          case ' ':
+            e.preventDefault();
+            goTo(current + 1);
+            break;
+          case 'ArrowLeft':
+          case 'PageUp':
+            e.preventDefault();
+            goTo(current - 1);
+            break;
+          case 'Home':
+            e.preventDefault();
+            goTo(0);
+            break;
+          case 'End':
+            e.preventDefault();
+            goTo(slides.length - 1);
+            break;
+        }
+      });
+
+      // Wheel — debounced
+      let wheelLock = false;
+      document.addEventListener('wheel', (e) => {
+        if (wheelLock) return;
+        if (Math.abs(e.deltaY) < 30) return;
+        wheelLock = true;
+        if (e.deltaY > 0) goTo(current + 1);
+        else goTo(current - 1);
+        setTimeout(() => { wheelLock = false; }, 800);
+      }, { passive: true });
+
+      // Touch swipe
+      let touchStartY = null;
+      let touchStartX = null;
+      document.addEventListener('touchstart', (e) => {
+        touchStartY = e.touches[0].clientY;
+        touchStartX = e.touches[0].clientX;
+      }, { passive: true });
+      document.addEventListener('touchend', (e) => {
+        if (touchStartY === null) return;
+        const dy = e.changedTouches[0].clientY - touchStartY;
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
+          goTo(current + (dx < 0 ? 1 : -1));
+        } else if (Math.abs(dy) > 50) {
+          goTo(current + (dy < 0 ? 1 : -1));
+        }
+        touchStartY = touchStartX = null;
+      }, { passive: true });
+    })();
+  </script>
+</body>
+
+</html>
